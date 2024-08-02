@@ -12,6 +12,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from forms import CreatePostForm, RegisterForm, LoginForm, CommentForm
 import smtplib
 import os
+from email_validator import validate_email, EmailNotValidError
 
 MY_EMAIL = os.environ.get("EMAIL")
 PASSWORD = os.environ.get('PASSWORD')
@@ -48,7 +49,7 @@ def admin_only(f):
     return decorated_func
 
 
-# CREATE DATABASE
+# DATABASE
 class Base(DeclarativeBase):
     pass
 
@@ -73,6 +74,7 @@ class BlogPost(db.Model):
     img_url: Mapped[str] = mapped_column(String(250), nullable=False)
     # One to Many relationship with Comment(one post can have several comments)
     comments = relationship("Comment", back_populates="parent_post")
+
 
 class User(UserMixin, db.Model):
     __tablename__ = "users"
@@ -106,25 +108,30 @@ with app.app_context():
 def register():
     form = RegisterForm()
     if form.validate_on_submit():
-        user = db.session.execute(db.select(User).where(User.email == form.email.data)).scalar()
-        if user:
-            flash("You've already signed up with that email, log in instead!")
-            return redirect(url_for("login"))
+        try:
+            validate_email(form.email.data)
+            user = db.session.execute(db.select(User).where(User.email == form.email.data)).scalar()
+            if user:
+                flash("You've already signed up with that email, log in instead!")
+                return redirect(url_for("login"))
 
-        hash_salted_password = generate_password_hash(
-            form.password.data,
-            method='pbkdf2:sha256',
-            salt_length=8
-        )
-        new_user = User(
-            email=form.email.data,
-            password=hash_salted_password,
-            name=form.name.data
-        )
-        db.session.add(new_user)
-        db.session.commit()
-        login_user(new_user)
-        return redirect(url_for("get_all_posts"))
+            hash_salted_password = generate_password_hash(
+                form.password.data,
+                method='pbkdf2:sha256',
+                salt_length=8
+            )
+            new_user = User(
+                email=form.email.data,
+                password=hash_salted_password,
+                name=form.name.data
+            )
+            db.session.add(new_user)
+            db.session.commit()
+            login_user(new_user)
+            return redirect(url_for("get_all_posts"))
+        except EmailNotValidError as e:
+            flash(str(e), "error")
+            return redirect(url_for("register"))
     return render_template("register.html", form=form, current_user=current_user)
 
 
